@@ -24,5 +24,27 @@
     "@types/rc": "^1.2.4",
     "typescript": "^5.9.3",
     "vitest": "^4.0.15"
+  },
+
+  "exports": {
+    ".": {
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+
+    "./types/*": {
+      "require": "./dist/types/*.js",
+      "types": "./dist/types/*.d.ts"
+    },
+
+    "./parsing/*": {
+      "require": "./dist/parsing/*.js",
+      "types": "./dist/parsing/*.d.ts"
+    },
+
+    "./config": {
+      "require": "./dist/config.js",
+      "types": "./dist/config.d.ts"
+    }
   }
 }
