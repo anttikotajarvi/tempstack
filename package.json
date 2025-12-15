@@ -37,14 +37,14 @@
       "types": "./dist/types/*.d.ts"
     },
 
-    "./parsing/*": {
-      "require": "./dist/parsing/*.js",
-      "types": "./dist/parsing/*.d.ts"
+    "./report/*": {
+      "require": "./dist/parsing/report.js",
+      "types": "./dist/types/report.d.ts"
     },
 
     "./config": {
       "require": "./dist/config.js",
-      "types": "./dist/config.d.ts"
+      "types": "./dist/types/index.d.ts"
     }
   }
 }
