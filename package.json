@@ -25,25 +25,23 @@
     "typescript": "^5.9.3",
     "vitest": "^4.0.15"
   },
-
   "exports": {
     ".": {
-      "require": "./dist/index.js",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
       "types": "./dist/index.d.ts"
     },
-
     "./types/*": {
-      "require": "./dist/types/*.js",
       "types": "./dist/types/*.d.ts"
     },
-
-    "./report/*": {
-      "require": "./dist/parsing/report.js",
+    "./report": {
+      "import": "./dist/parsing/report.js",
+      "require": "./dist/parsing/report.cjs",
       "types": "./dist/types/report.d.ts"
     },
-
     "./config": {
-      "require": "./dist/config.js",
+      "import": "./dist/config.js",
+      "require": "./dist/config.cjs",
       "types": "./dist/types/index.d.ts"
     }
   }
