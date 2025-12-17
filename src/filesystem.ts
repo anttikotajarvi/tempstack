@@ -7,13 +7,11 @@ export const HIDDEN_FILE_PREFIX = ".";
 export const literalFilename = (tagName: string) => `${tagName}.json`;
 export const templateFilename = (tagName: string) => `${tagName}.js`;
 export const tagNameFromFilename = (filename: string): string => {
-  if (filename.endsWith(".json")) {
-    return filename.slice(0, -5);
-  }
-  if (filename.endsWith(".js")) {
-    return filename.slice(0, -3);
-  }
-  return filename;
+  path.extname(filename);
+  const ext = path.extname(filename);
+  const basename = path.basename(filename, ext);
+
+  return basename;
 }
 
 
