@@ -83,7 +83,7 @@ function readTemplateFile(file) {
     }
 }
 function retrieveTemplate(tPath, root) {
-    const E = error("READ_TEMPLATE_LITERAL");
+    const E = error("READ_TEMPLATE");
     const cfg = (0, config_1.getConfig)();
     const dirPath = tPath.slice(0, -1);
     const tagName = tPath[tPath.length - 1];

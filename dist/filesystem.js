@@ -41,13 +41,7 @@ exports.literalFilename = literalFilename;
 const templateFilename = (tagName) => `${tagName}.js`;
 exports.templateFilename = templateFilename;
 const tagNameFromFilename = (filename) => {
-    if (filename.endsWith(".json")) {
-        return filename.slice(0, -5);
-    }
-    if (filename.endsWith(".js")) {
-        return filename.slice(0, -3);
-    }
-    return filename;
+    return path.parse(filename).name;
 };
 exports.tagNameFromFilename = tagNameFromFilename;
 const _groupAgnosticFind = (fs) => (dirPath, tagName, cfg) => {
