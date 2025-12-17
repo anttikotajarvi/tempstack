@@ -68,7 +68,7 @@ function readTemplateFile(file: string): TemplateFunction {
 
 export function retrieveTemplate(tPath: string[], root: string)
 : [template: TemplateFunction | TemplateLiteral, absolutePath:string] {
-  const E = error("READ_TEMPLATE_LITERAL");
+  const E = error("READ_TEMPLATE");
   const cfg = getConfig();
 
 
