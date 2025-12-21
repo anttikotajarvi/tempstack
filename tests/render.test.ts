@@ -10,7 +10,6 @@ const cfg: Config = {
   groupDirPrefix: ".",
   LITERAL_EXT: ".json",
   TEMPLATE_EXT: ".js",
-  HIDDEN_DIR_PREFIX: ".",
 };
 
 describe("render()", () => {
@@ -146,7 +145,7 @@ describe("render()", () => {
   it("throws for an ambiguous shorthand when multiple group dirs contain the same tag", () => {
     // config/.a/feature.json and config/.b/feature.json both present
     expect(() => render(["config/feature"], {})).toThrow(
-      /ambigious-template-name|template-not-found|multiple matches/i
+      /ambiguous-template-name|template-not-found|multiple matches/i
     );
   });
 
@@ -180,7 +179,9 @@ describe("render() array semantics ([] anchors)", () => {
     );
 
     expect(result).toEqual({
-      colors: ["red", "blue"],
+      "array-tests": {
+        colors: ["red", "blue"],
+      }
     });
   });
 
@@ -191,7 +192,9 @@ describe("render() array semantics ([] anchors)", () => {
     );
 
     expect(result).toEqual({
-      colors: ["base", "red"],
+      "array-tests": {
+        colors: ["base", "red"],
+      }
     });
   });
 
@@ -204,7 +207,9 @@ describe("render() array semantics ([] anchors)", () => {
   it("apply() inside an array resolves from slot/[]/tag and supports group::tag (groupDirPrefix='.')", () => {
     const result = render(["array-tests/colors/arrayApply"], {});
     expect(result).toEqual({
-      colors: ["red", "blue", "dark-red"]
+      "array-tests": {
+        colors: ["red", "blue", "dark-red"]
+      }
     });
   });
 
@@ -212,7 +217,9 @@ describe("render() array semantics ([] anchors)", () => {
   it("pushes returned arrays as single elements (no flatten): element returns array => nested array", () => {
     const result = render(["array-tests/colors/[]/palette"], {});
     expect(result).toEqual({
-      colors: [["p1", "p2"]],
+      "array-tests": {
+        colors: [["p1", "p2"]],
+      }
     });
   });
 
@@ -223,7 +230,9 @@ describe("render() array semantics ([] anchors)", () => {
     );
 
     expect(result).toEqual({
-      nested: [["a1"], ["b1"]],
+      "array-tests": {
+        nested: [["a1"], ["b1"]],
+      }
     });
   });
 
@@ -234,7 +243,9 @@ describe("render() array semantics ([] anchors)", () => {
     );
 
     expect(result).toEqual({
-      mix: ["m0", "m1"],
+      "array-tests": {
+        mix: ["m0", "m1"],
+      }
     });
   });
 

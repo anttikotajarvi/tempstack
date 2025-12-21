@@ -46,8 +46,6 @@ export type Config = {
   LITERAL_EXT: string;  // ".json"
   TEMPLATE_EXT: string; // ".js"
 
-  /** Hidden dir prefix (also ".", but treated separately from group syntax rules) */
-  HIDDEN_DIR_PREFIX: string;
 };
 
 /* =========================

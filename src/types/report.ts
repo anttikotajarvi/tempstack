@@ -3,20 +3,22 @@ import { Config, JsonValue, Path } from ".";
 type TTLoc = {
   /**
    * Name of this node:
-   * - For directories: directory name (e.g. "site", ".a"), "" for root
+   * - For directories: directory name (e.g. "site", ".a", "[]"), "" for root
    * - For templates: filename without extension (e.g. "layout", "primary")
    */
   name: string;
 
   /**
-   * Path segments inside templateDir, without extensions, including group/hidden dirs.
+   * Path segments inside templateDir, without extensions, including group/hidden dirs
+   * and array dirs ("[]") when present.
    *
    * Examples:
    *   root dir: []
-   *   /templates/site           -> ["site"]
-   *   /templates/site/style     -> ["site","style"]
-   *   /templates/site/style/layout.json -> ["site","style","layout"]
+   *   /templates/site                         -> ["site"]
+   *   /templates/site/style                   -> ["site","style"]
+   *   /templates/site/style/layout.json       -> ["site","style","layout"]
    *   /templates/site/style/.dark/primary.json -> ["site","style",".dark","primary"]
+   *   /templates/colors/[]/red.json           -> ["colors","[]","red"]
    */
   localPath: Path;
 
@@ -31,75 +33,98 @@ type TTLoc = {
   fsPath: string;
 };
 
+type TTTemplateSemantics = {
+  /**
+   * True if this template sits under an explicit array directory "[]",
+   * meaning it contributes an array element (instead of assigning/replacing
+   * the property directly).
+   *
+   * Example:
+   *   colors/red.json      -> false
+   *   colors/[]/red.json   -> true
+   */
+  isArrayContributor: boolean;
+};
+
 /**
  * Literal template node
  */
-type TTLiteralLog = TTLoc & {
-  nodeType: "template-literal";
+type TTLiteralLog = TTLoc &
+  TTTemplateSemantics & {
+    nodeType: "template-literal";
 
-  /** Logical anchor path this literal writes into (no group/hidden dirs, no filename). */
-  anchor: string[]; // e.g. ["site","style","color"]
+    /** Logical anchor path this literal writes into (no group/hidden dirs, no "[]", no filename). */
+    anchor: string[]; // e.g. ["site","style","color"]
 
-  /** Parsed literal content (can be scalar, array, or object). */
-  content: JsonValue;
-};
+    /** Parsed literal content (can be scalar, array, or object). */
+    content: JsonValue;
+  };
 
-/** 
+/**
  * Function template node
  */
-type TTFunctionLog = TTLoc & {
-  nodeType: "template-function";
+type TTFunctionLog = TTLoc &
+  TTTemplateSemantics & {
+    nodeType: "template-function";
 
-  /** Logical anchor path this function template writes into. */
-  anchor: string[];
+    /** Logical anchor path this function template writes into (no group/hidden dirs, no "[]"). */
+    anchor: string[];
 
-  /** Full file content (for UI / inspection). */
-  content: string;
+    /** Full file content (for UI / inspection). */
+    content: string;
 
-  /** Heuristically discovered argument keys (from getUsedArguments). */
-  args: string[];
+    /** Heuristically discovered argument keys (from getUsedArguments). */
+    args: string[];
 
-  /** Does this template call apply() anywhere? */
-  usesApply: boolean;
-};
+    /** Does this template call apply() anywhere? */
+    usesApply: boolean;
+  };
 
 /**
  * Directory node
  */
-
 type TTDir = TTLoc & {
-    nodeType: "dir";
-    
-    /** Root, anchor, group, or hidden */
-    dirType: TTDirType;
-    
-    /**
-     * Contribution to anchor path:
-     * - "anchor-dir": usually [name]
-     * - "group-dir" / "hidden-dir": usually []
-     * - "root": []
-    *
-    * A template's anchor is typically:
-    *   concat of all ancestor.dirAnchor plus file-level anchor logic.
-    */
-   dirAnchor: string[];
-   
-   /** Children of this directory, keyed by child.name (not fsName). */
-   children: Record<string, TTNode>;
+  nodeType: "dir";
+
+  /** Root, anchor, group, hidden, or array ("[]") directory */
+  dirType: TTDirType;
+
+  /**
+   * Contribution to anchor path:
+   * - "anchor-dir": usually [name]
+   * - "group-dir" / "hidden-dir" / "array-dir": []
+   * - "root": []
+   *
+   * A template's anchor is typically:
+   *   concat of all ancestor.dirAnchor plus file-level anchor logic.
+   */
+  dirAnchor: string[];
+
+  /** Children of this directory, keyed by child.name (not fsName). */
+  children: Record<string, TTNode>;
 };
-type TTDirType = "root" | "anchor-dir" | "group-dir" | "hidden-dir";
+
+type TTDirType = "root" | "anchor-dir" | "group-dir" | "hidden-dir" | "array-dir";
 
 type TTNode = TTLiteralLog | TTFunctionLog | TTDir;
 
+/**
+ * Final template tree log structure
+ */
+type TemplateTreeRep = {
+  cfg: Config;
 
-    /**
-     * Final template tree log structure
-     */
-    type TemplateTreeRep = {
-        cfg: Config,
+  /** Tree of nodes starting from root */
+  tree: TTDir;
+};
 
-        /** Tree of nodes starting from root */
-        tree: TTDir;
-    };
-
-export type { TTLoc, TTLiteralLog, TTFunctionLog, TTDir, TTNode, TTDirType, TemplateTreeRep };
+export type {
+  TTLoc,
+  TTTemplateSemantics,
+  TTLiteralLog,
+  TTFunctionLog,
+  TTDir,
+  TTNode,
+  TTDirType,
+  TemplateTreeRep
+};

@@ -1,5 +1,6 @@
 // src/types/convert.ts
 
+import { HIDDEN_FILE_PREFIX } from "../filesystem";
 import { unwrapFsRelPath } from "./brands";
 import {
   ARRAY_SEG,
@@ -67,7 +68,7 @@ export function isGroupDirSeg(seg: string, cfg: Config): boolean {
 
 /** True if seg is a hidden dir segment under cfg.HIDDEN_DIR_PREFIX. */
 export function isHiddenDirSeg(seg: string, cfg: Config): boolean {
-  return seg.startsWith(cfg.HIDDEN_DIR_PREFIX);
+  return seg.startsWith(HIDDEN_FILE_PREFIX);
 }
 
 /** Disallow slashes in a segment. */

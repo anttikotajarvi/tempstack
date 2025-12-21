@@ -7,7 +7,6 @@ const DEFAULT_CONFIG: Config = {
   groupDirPrefix: ".",
   LITERAL_EXT: ".json",
   TEMPLATE_EXT: ".js",
-  HIDDEN_DIR_PREFIX: "."
 };
 
 /**

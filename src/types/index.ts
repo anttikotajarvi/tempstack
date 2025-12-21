@@ -17,8 +17,6 @@ export type Config = {
 
   LITERAL_EXT: string;
   TEMPLATE_EXT: string;
-
-  HIDDEN_DIR_PREFIX: string;
 }
 
 export type SlotContext = {
