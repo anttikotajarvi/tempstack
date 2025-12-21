@@ -33,286 +33,366 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.apply = exports.ERROR_CODES = void 0;
 exports.retrieveTemplate = retrieveTemplate;
 exports.resolveTemplateNode = resolveTemplateNode;
 exports.render = render;
-const fs = __importStar(require("fs"));
-const path = __importStar(require("path"));
+// src/sys.ts
+const fs = __importStar(require("node:fs"));
+const path = __importStar(require("node:path"));
+const brands_1 = require("./types/brands");
+const brands_2 = require("./types/brands");
+const convert_1 = require("./types/convert");
+const filesystem_1 = require("./filesystem");
 const config_1 = require("./config");
+/* ============================================================
+ * Errors
+ * ============================================================ */
 var ERROR_CODES;
 (function (ERROR_CODES) {
+    ERROR_CODES["INVALID_TEMPLATE_ID"] = "invalid-template-id";
     ERROR_CODES["NO_EXPLICIT_FILE_TYPES"] = "no-explicit-file-types";
     ERROR_CODES["NO_DUPLICATE_TEMPLATES"] = "no-duplicate-templates";
     ERROR_CODES["TEMPLATE_NOT_FOUND"] = "template-not-found";
-    ERROR_CODES["UNEXPECTED_READ_ERROR"] = "unexpected-read-error";
-    ERROR_CODES["UNEXPECTED_REQUIRE_ERROR"] = "unexpected-require-error";
-    ERROR_CODES["UNCAUGHT_EXCEPTION"] = "uncaught-exception";
-    ERROR_CODES["AMBIGIOUS_TEMPLATE_NAME"] = "ambigious-template-name";
-    ERROR_CODES["TEMPLATE_EXECUTION_ERROR"] = "template-execution-error";
+    ERROR_CODES["AMBIGIGUOUS_TEMPLATE_NAME"] = "ambiguous-template-name";
     ERROR_CODES["INVALID_TEMPLATE_TYPE"] = "invalid-template-type";
-    ERROR_CODES["INVALID_ANCHOR"] = "invalid-anchor";
-    ERROR_CODES["INVALID_TEMPLATE_ID"] = "invalid-template-id";
     ERROR_CODES["INVALID_TEMPLATE_ARGS"] = "invalid-template-args";
-    ERROR_CODES["INVALID_BASE_TEMPLATE"] = "invalid-base-template";
-})(ERROR_CODES || (ERROR_CODES = {}));
-const filesystem_1 = require("./filesystem");
-const types_1 = require("./types");
-const util_1 = require("./util");
-const groupAgnosticFind = (0, filesystem_1.groupAgnosticFindWithFs)(fs);
-const error = (processName) => (code, msg) => {
+    ERROR_CODES["TEMPLATE_EXECUTION_ERROR"] = "template-execution-error";
+    ERROR_CODES["INVALID_ANCHOR"] = "invalid-anchor";
+    ERROR_CODES["ARRAY_TYPE_MISMATCH"] = "array-type-mismatch";
+    ERROR_CODES["UNEXPECTED_READ_ERROR"] = "unexpected-read-error";
+})(ERROR_CODES || (exports.ERROR_CODES = ERROR_CODES = {}));
+const error = (processName) => (code, msg, err) => {
     throw new Error(`${code} from ${processName}: ${msg}`);
 };
-function readLiteralFile(file) {
+// Wire convert.ts errors into our error style
+(0, convert_1.setErr)((code, msg) => {
+    throw new Error(`${code}: ${msg}`);
+});
+/* ============================================================
+ * Small JSON helpers
+ * ============================================================ */
+const isJsonObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+const deepMergeObjects = (a, b) => {
+    const out = { ...a };
+    for (const [k, v] of Object.entries(b)) {
+        const cur = out[k];
+        if (isJsonObject(cur) && isJsonObject(v)) {
+            out[k] = deepMergeObjects(cur, v);
+        }
+        else {
+            out[k] = v;
+        }
+    }
+    return out;
+};
+/* ============================================================
+ * File readers (strict)
+ * ============================================================ */
+const readLiteralFile = (absPath) => {
     const E = error("READ_LITERAL");
+    const raw = fs.readFileSync((0, brands_2.unwrapFsAbsPath)(absPath), "utf8");
     try {
-        const content = fs.readFileSync(file, "utf-8");
-        return JSON.parse(content);
+        return JSON.parse(raw);
     }
     catch (err) {
-        return E(ERROR_CODES.UNEXPECTED_READ_ERROR, `Error reading or parsing file: ${file}`);
+        return E(ERROR_CODES.UNEXPECTED_READ_ERROR, `invalid-json in file: ${(0, brands_2.unwrapFsAbsPath)(absPath)} (raw length=${raw.length})`, err);
     }
-}
-function readTemplateFile(file) {
+};
+const readTemplateFile = (absPath) => {
+    var _a, _b, _c, _d;
     const E = error("READ_TEMPLATE_FILE");
+    const absStr = (0, brands_2.unwrapFsAbsPath)(absPath);
     try {
-        const fn = require(file);
+        // Ensure Node loads fresh version in tests
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        (_a = require.cache) === null || _a === void 0 ? true : delete _a[require.resolve(absStr)];
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const mod = require(absStr);
+        const fn = ((_d = (_b = mod === null || mod === void 0 ? void 0 : mod.default) !== null && _b !== void 0 ? _b : (_c = mod === null || mod === void 0 ? void 0 : mod.module) === null || _c === void 0 ? void 0 : _c.exports) !== null && _d !== void 0 ? _d : mod);
+        if (typeof fn !== "function") {
+            return E(ERROR_CODES.INVALID_TEMPLATE_TYPE, `Template JS did not export a function: ${absStr}`);
+        }
         return fn;
     }
     catch (err) {
-        return E(ERROR_CODES.UNEXPECTED_REQUIRE_ERROR, `Error importing file: ${file}`);
+        return E(ERROR_CODES.UNEXPECTED_READ_ERROR, `Error requiring template file: ${absStr}`, err);
     }
-}
-function retrieveTemplate(tPath, root) {
+};
+const isTemplateFunction = (v) => typeof v === "function";
+const isTemplateLiteral = (v) => !isTemplateFunction(v);
+/* ============================================================
+ * retrieveTemplate (strict)
+ * ============================================================ */
+function retrieveTemplate(tPath, rootDirAbs, cfg) {
     const E = error("READ_TEMPLATE");
-    const cfg = (0, config_1.getConfig)();
-    const dirPath = tPath.slice(0, -1);
-    const tagName = tPath[tPath.length - 1];
-    // [RULE] no-explicit-file-types
-    if (tagName.endsWith(cfg.LITERAL_EXT) || tagName.endsWith(cfg.TEMPLATE_EXT)) {
-        E(ERROR_CODES.NO_EXPLICIT_FILE_TYPES, `Template tag name must not include file extension: ${tagName}`);
+    const segs = (0, brands_2.unwrapFsRelPath)(tPath);
+    if (segs.length === 0) {
+        return E(ERROR_CODES.INVALID_TEMPLATE_ID, "Empty template path");
     }
-    const literalPathAbs = path.join(root, ...dirPath, (0, filesystem_1.literalFilename)(tagName));
-    const templatePathAbs = path.join(root, ...dirPath, (0, filesystem_1.templateFilename)(tagName));
-    const templateExists = fs.existsSync(templatePathAbs);
-    const literalExists = fs.existsSync(literalPathAbs);
+    const dirSegs = segs.slice(0, -1);
+    const tagRaw = segs[segs.length - 1];
+    // [RULE] no-explicit-file-types
+    if (tagRaw.endsWith(cfg.LITERAL_EXT) || tagRaw.endsWith(cfg.TEMPLATE_EXT)) {
+        return E(ERROR_CODES.NO_EXPLICIT_FILE_TYPES, `Template tag name must not include file extension: ${tagRaw}`);
+    }
+    const tagName = (0, brands_2.asTemplateTagName)(tagRaw);
+    // Build exact literal and fn absolute paths
+    const rootAbsStr = (0, brands_2.unwrapFsAbsPath)(rootDirAbs);
+    const literalAbs = (0, brands_2.asFsAbsPath)(path.join(rootAbsStr, ...dirSegs, (0, filesystem_1.literalFilename)(tagName, cfg)));
+    const fnAbs = (0, brands_2.asFsAbsPath)(path.join(rootAbsStr, ...dirSegs, (0, filesystem_1.templateFilename)(tagName, cfg)));
+    const templateExists = fs.existsSync((0, brands_2.unwrapFsAbsPath)(fnAbs));
+    const literalExists = fs.existsSync((0, brands_2.unwrapFsAbsPath)(literalAbs));
     // [RULE] no-duplicate-templates
     if (literalExists && templateExists) {
-        return E(ERROR_CODES.NO_DUPLICATE_TEMPLATES, `Template tag name resolves to both literal and function template: ${tagName}`);
+        return E(ERROR_CODES.NO_DUPLICATE_TEMPLATES, `Template tag resolves to both literal and function: ${tagRaw}`);
     }
-    // Optimistic checks
-    if (templateExists) {
-        // Function template
-        return [readTemplateFile(templatePathAbs), templatePathAbs];
-    }
-    if (literalExists) {
-        // Literal template
-        return [readLiteralFile(literalPathAbs), literalPathAbs];
-    }
-    /* Neither found, either it doesnt exist or is shorthand notation which only implies groups */
-    // Check for shorthand group notation
+    if (templateExists)
+        return [readTemplateFile(fnAbs), fnAbs];
+    if (literalExists)
+        return [readLiteralFile(literalAbs), literalAbs];
+    // Shorthand (implicit group traversal)
     {
-        const groupHits = groupAgnosticFind(dirPath, tagName, cfg);
-        if (groupHits.length === 0) {
-            // not found at all → error
-            return E(ERROR_CODES.TEMPLATE_NOT_FOUND, `Template not found: ${[...dirPath, tagName].join("/")}`);
+        // filesystem.ts currently expects TemplateDirAbs; allow arbitrary roots by branding
+        const brandedRoot = (0, brands_2.asTemplateDirAbs)(rootAbsStr);
+        const hits = (0, filesystem_1.groupAgnosticFind)(brandedRoot, (0, brands_2.asFsRelPath)(dirSegs), tagName, cfg);
+        if (hits.length === 0) {
+            return E(ERROR_CODES.TEMPLATE_NOT_FOUND, `Template not found: ${segs.join("/")}`);
         }
-        else if (groupHits.length === 1) {
-            // unique implicit group: load that file (json/js) and return it
-            const filepathAbs = path.join(root, ...groupHits[0]);
-            if (filepathAbs.endsWith(cfg.TEMPLATE_EXT))
-                return [readTemplateFile(filepathAbs), filepathAbs];
-            if (filepathAbs.endsWith(cfg.LITERAL_EXT))
-                return [readLiteralFile(filepathAbs), filepathAbs];
-            return E(ERROR_CODES.UNCAUGHT_EXCEPTION, `Unrecognized extension from a shorthand call: ${filepathAbs}`);
+        if (hits.length > 1) {
+            return E(ERROR_CODES.AMBIGIGUOUS_TEMPLATE_NAME, `Multiple matches for template: ${segs.join("/")} -> ${JSON.stringify(hits.map(brands_2.unwrapFsRelPath), null, 2)}`);
         }
-        else {
-            // >1 -> shorthand is ambiguous -> error, tell user to specify group explicitly
-            return E(ERROR_CODES.AMBIGIOUS_TEMPLATE_NAME, `Multiple matches for template ID: '${path.join(...tPath)}' in ${JSON.stringify(groupHits, null, 2)}`);
-        }
+        const relHit = hits[0];
+        const absHit = (0, convert_1.absFromTemplateDir)(brandedRoot, relHit);
+        const absHitStr = (0, brands_2.unwrapFsAbsPath)(absHit);
+        if (absHitStr.endsWith(cfg.TEMPLATE_EXT))
+            return [readTemplateFile(absHit), absHit];
+        if (absHitStr.endsWith(cfg.LITERAL_EXT))
+            return [readLiteralFile(absHit), absHit];
+        return E(ERROR_CODES.UNEXPECTED_READ_ERROR, `Unrecognized extension for implicit hit: ${absHitStr}`);
     }
 }
-const apply = (tagName, args = {}) => {
+/* ============================================================
+ * apply() (strict + array semantics via slotPath)
+ * ============================================================ */
+const apply = (tagName, args = {}) => (slotCtx) => {
     const E = error("APPLY_THUNK_EXECUTION");
     const cfg = (0, config_1.getConfig)();
-    // Parse optional group syntax: "group::tag"
-    let baseTag = tagName;
-    let groupDir = null;
-    const sepIdx = tagName.indexOf("::");
-    if (sepIdx !== -1) {
-        const groupName = tagName.slice(0, sepIdx).trim();
-        const tagPart = tagName.slice(2 + sepIdx).trim();
-        if (!groupName || !tagPart) {
-            return E(ERROR_CODES.INVALID_TEMPLATE_ID, `Invalid group selector syntax in apply(): '${tagName}'`);
+    const caller = slotCtx.template;
+    // group::tag parsing (group dirs ONLY use cfg.groupDirPrefix)
+    const selector = (0, convert_1.parseApplySelector)(tagName, cfg);
+    // Build relative tPath: slotPath + [groupDir?] + tag
+    const tPath = (0, convert_1.buildApplyTPath)(slotCtx.slotPath, selector);
+    // Root for resolution is caller directory on disk
+    const callerDirAbs = (0, convert_1.deriveCallerDirAbs)(caller.templateDir, (0, brands_2.unwrapFsRelPath)(caller.path));
+    const [impl, implAbs] = retrieveTemplate(tPath, callerDirAbs, cfg);
+    if (isTemplateLiteral(impl)) {
+        if (Object.keys(args).length > 0) {
+            return E(ERROR_CODES.INVALID_TEMPLATE_ARGS, `Literal template but apply() received args: ${tagName}`);
         }
-        baseTag = tagPart;
-        // Only groupDirPrefix, NOT hidden prefix
-        groupDir = cfg.groupDirPrefix + groupName;
+        return impl;
     }
-    const thunk = (slotCtx) => {
-        const { template: caller, slotPath, slotAnchor } = slotCtx;
-        if (!caller.templateDir) {
-            return E(ERROR_CODES.UNCAUGHT_EXCEPTION, `Invalid TemplateContext for apply('${tagName}') in ${caller.id}`);
-        }
-        // Build template path RELATIVE to the caller's directory:
-        //   slotPath + [groupDir?] + baseTag
-        //
-        // Example at root:
-        //   nodePath / slotPath = ["style","color"]
-        //   apply("red")
-        //   => tPath = ["style","color","red"]
-        //
-        // Example with group:
-        //   apply("dark::red")
-        //   => tPath = ["style","color",".dark","red"]
-        const dirSegments = [...slotPath]; // e.g. ["style","color"]
-        if (groupDir) {
-            dirSegments.push(groupDir);
-        }
-        const tPath = [...dirSegments, baseTag];
-        // Root dir for this resolution is the caller's directory on disk
-        const callerDirAbs = path.join(caller.templateDir, ...caller.path);
-        const [templateImpl, templatePathAbs] = retrieveTemplate(tPath, callerDirAbs);
-        // --- Literal template case ---
-        if ((0, types_1.isTemplateLiteral)(templateImpl)) {
-            if (Object.keys(args).length > 0) {
-                return E(ERROR_CODES.INVALID_TEMPLATE_ARGS, `Template '${tPath.join("/")}' is literal but apply() was given arguments: ${JSON.stringify(args)}`);
-            }
-            return templateImpl;
-        }
-        // --- Function template case ---
-        if (!(0, types_1.isTemplateFunction)(templateImpl)) {
-            return E(ERROR_CODES.INVALID_TEMPLATE_TYPE, `Template '${tPath.join("/")}' is neither literal nor function in apply('${tagName}')`);
-        }
-        const fn = templateImpl;
-        // Build TemplateContext for the subtemplate
-        // Path of the subtemplate dir is caller.path + dirSegments
-        const subPath = [...caller.path, ...dirSegments];
-        const subCtx = {
-            id: tPath.join("/"), // you can refine this if you like
-            anchor: slotAnchor, // subtemplate anchors exactly at this slot
-            templateDir: caller.templateDir,
-            path: subPath,
-            filename: path.basename(templatePathAbs)
-        };
-        const subTools = { apply };
-        const resultNode = fn(args, subCtx, subTools);
-        // Resolve nested applies within the subtemplate
-        return resolveTemplateNode(resultNode, subCtx, []);
+    if (!isTemplateFunction(impl)) {
+        return E(ERROR_CODES.INVALID_TEMPLATE_TYPE, `Template is neither literal nor function: ${tagName}`);
+    }
+    const fn = impl;
+    // slotPath: path inside caller's returned node (may include "[]")
+    // slotAnchor: absolute logical path (caller.anchor + slotPath) (may include "[]")
+    const slotPathSegs = slotCtx.slotPath.map((s) => String(s));
+    const slotAnchorSegs = slotCtx.slotAnchor.map((s) => String(s));
+    // TemplateContext.anchor is keys-only (object structure mount), so remove ARRAY_SEG
+    const anchorKeysOnly = slotAnchorSegs.filter((s) => s !== brands_1.ARRAY_SEG);
+    // TemplateContext.path is filesystem-relative dir to the template directory.
+    // This *can* include "[]" because you literally have a directory named "[]".
+    const subPathSegs = [
+        ...(0, brands_2.unwrapFsRelPath)(caller.path),
+        ...slotPathSegs,
+        ...(selector.kind === "grouped" ? [String(selector.groupDir)] : []),
+    ];
+    const subCtx = {
+        id: (0, brands_2.asTemplateId)(tagName),
+        anchor: (0, brands_2.asTemplateAnchorPath)(anchorKeysOnly),
+        templateDir: caller.templateDir,
+        path: (0, brands_2.asFsRelPath)(subPathSegs),
+        filename: (0, brands_1.asFsFilename)(path.basename((0, brands_2.unwrapFsAbsPath)(implAbs))),
     };
-    return thunk;
+    const tools = { apply: exports.apply };
+    const node = fn(args, subCtx, tools);
+    return resolveTemplateNode(node, subCtx, (0, brands_2.asFsRelPath)([]));
 };
-function resolveTemplateNode(node, ctx, nodePath // path inside this template's result
+exports.apply = apply;
+/* ============================================================
+ * resolveTemplateNode (ARRAY FIX: uses [] instead of indices)
+ * ============================================================ */
+function resolveTemplateNode(node, ctx, nodePath // path inside this template's returned node, as segments
 ) {
-    //const E = error("RESOLVE_TEMPLATE_NODE");
+    const E = error("RESOLVE_TEMPLATE_NODE");
     // ApplyThunk
     if (typeof node === "function") {
         const thunk = node;
-        const slotAnchor = [...ctx.anchor, ...nodePath];
-        return thunk({
-            template: ctx,
-            slotPath: nodePath,
-            slotAnchor
-        });
+        // IMPORTANT ARRAY SEMANTICS:
+        // nodePath is already a SlotPath-like sequence, where array descent uses ARRAY_SEG.
+        const slotPath = nodePath;
+        const slotAnchor = (0, convert_1.makeSlotAnchor)(ctx.anchor, slotPath);
+        try {
+            return thunk({
+                template: ctx,
+                slotPath,
+                slotAnchor,
+            });
+        }
+        catch (err) {
+            return E(ERROR_CODES.TEMPLATE_EXECUTION_ERROR, err);
+        }
     }
-    // Array branch
+    // Array branch: descend with ARRAY_SEG (NOT indices)
     if (Array.isArray(node)) {
         const out = [];
         for (let i = 0; i < node.length; i++) {
             const child = node[i];
-            out[i] = resolveTemplateNode(child, ctx, [...nodePath, String(i)]);
+            const nextPath = (0, convert_1.slotPathPushArray)(nodePath);
+            out[i] = resolveTemplateNode(child, ctx, nextPath);
         }
         return out;
     }
     // Object branch
-    if ((0, util_1.isJsonObject)(node)) {
+    if (isJsonObject(node)) {
         const out = {};
         for (const [key, child] of Object.entries(node)) {
-            out[key] = resolveTemplateNode(child, ctx, [
-                ...nodePath,
-                key
-            ]);
+            const nextPath = (0, convert_1.slotPathPushKey)(nodePath, key);
+            out[key] = resolveTemplateNode(child, ctx, nextPath);
         }
         return out;
     }
     // Primitive JsonValue
     return node;
 }
-// cfg.groupDirPrefix + HIDDEN_FILE_PREFIX assumed in scope
-// splitPath, retrieveTemplate, error, ERROR_CODES assumed in scope
+/* ============================================================
+ * render() (implements [] anchor semantics)
+ * ============================================================ */
 function render(templateIds, args) {
     const E = error("RENDER_TEMPLATES");
     const cfg = (0, config_1.getConfig)();
-    // --- Seed output with base.json if present ---
-    let out = {};
-    // --- Apply each top-level template id in order ---
-    for (const tid of templateIds) {
-        const tPath = (0, util_1.splitPath)(tid); // e.g. ["render", ".a", "look", "main"]
-        if (tPath.length === 0) {
-            return E(ERROR_CODES.INVALID_TEMPLATE_ID, `Empty template ID in render(): '${tid}'`);
-        }
-        // Directory segments (relative to templateDir), including groups
-        const dirPath = tPath.slice(0, -1); // ["render",".a","look"]
-        // Logical anchor path: drop group/hidden dirs
-        const anchorSegments = dirPath.filter((seg) => !seg.startsWith(cfg.groupDirPrefix) &&
-            !seg.startsWith(filesystem_1.HIDDEN_FILE_PREFIX));
-        // Load template implementation and its absolute filepath
-        const [templateImpl, templatePathAbs] = retrieveTemplate(tPath, cfg.templateDir);
-        let val;
-        if ((0, types_1.isTemplateFunction)(templateImpl)) {
-            const fn = templateImpl;
+    const out = {};
+    for (const tidRaw of templateIds) {
+        const tid = (0, brands_2.asTemplateId)(tidRaw);
+        const idPath = (0, convert_1.parseTemplateIdPath)(tid);
+        const { dir, tag } = (0, convert_1.splitTemplateIdPath)(idPath);
+        // Full filesystem rel path to the template (dir + tag)
+        const fullRel = (0, brands_2.asFsRelPath)([...dir, tag]);
+        const [impl, implAbs] = retrieveTemplate(fullRel, cfg.templateDir, cfg);
+        const mountAnchor = (0, convert_1.deriveMountAnchor)(dir, cfg);
+        const { isArrayContributor, pushDepth } = (0, convert_1.deriveArrayContribution)(dir, cfg);
+        let node;
+        if (isTemplateFunction(impl)) {
+            const fn = impl;
             const ctx = {
                 id: tid,
-                anchor: anchorSegments,
+                anchor: mountAnchor,
                 templateDir: cfg.templateDir,
-                path: dirPath,
-                filename: path.basename(templatePathAbs)
+                path: (0, brands_2.asFsRelPath)(dir),
+                filename: path.basename((0, brands_2.unwrapFsAbsPath)(implAbs)),
             };
-            const tools = { apply };
-            let node;
+            const tools = { apply: exports.apply };
             try {
                 node = fn(args, ctx, tools);
-                // Collapse all ApplyThunks to a pure JsonValue tree
             }
             catch (err) {
-                return E(ERROR_CODES.TEMPLATE_EXECUTION_ERROR, `Error executing template function '${tid}': ${err.message}`);
+                return E(ERROR_CODES.TEMPLATE_EXECUTION_ERROR, `Error executing template function '${(0, brands_2.unwrapTemplateId)(tid)}': ${err.message}`, err);
             }
-            val = resolveTemplateNode(node, ctx, []);
-        }
-        else {
-            // Literal template: already a pure JsonValue
-            val = templateImpl;
-        }
-        // --- Merge `val` into `out` at the logical anchor ---
-        // Root-anchored template
-        if (anchorSegments.length === 0) {
-            if (!(0, util_1.isJsonObject)(val)) {
-                return E(ERROR_CODES.INVALID_ANCHOR, `Root-anchored template must return an object: ${tid}`);
-            }
-            const merged = (0, util_1.deepMergeObjects)(out, val);
-            Object.assign(out, merged);
-            continue;
-        }
-        // Non-root anchor
-        let cur = out;
-        anchorSegments.forEach((seg, idx) => {
-            const isLast = idx === anchorSegments.length - 1;
-            if (isLast) {
-                const existing = cur[seg];
-                if ((0, util_1.isJsonObject)(existing) && (0, util_1.isJsonObject)(val)) {
-                    cur[seg] = (0, util_1.deepMergeObjects)(existing, val);
-                }
-                else {
-                    cur[seg] = val;
-                }
+            const val = resolveTemplateNode(node, ctx, (0, brands_2.asFsRelPath)([]));
+            if (isArrayContributor) {
+                pushIntoArrayAtAnchor(out, mountAnchor, val, pushDepth);
             }
             else {
-                const existing = cur[seg];
-                if (!(0, util_1.isJsonObject)(existing)) {
-                    cur[seg] = {};
-                }
-                cur = cur[seg];
+                mergeAtAnchor(out, mountAnchor, val);
             }
-        });
+        }
+        else {
+            const val = impl;
+            if (isArrayContributor) {
+                pushIntoArrayAtAnchor(out, mountAnchor, val, pushDepth);
+            }
+            else {
+                mergeAtAnchor(out, mountAnchor, val);
+            }
+        }
+    }
+    return out;
+}
+function mergeAtAnchor(out, anchor, val) {
+    const E = error("MERGE_AT_ANCHOR");
+    const segs = (0, brands_2.unwrapFsRelPath)(anchor);
+    if (segs.length === 0) {
+        if (isJsonObject(val)) {
+            Object.assign(out, deepMergeObjects(out, val));
+            return;
+        }
+        E(ERROR_CODES.INVALID_ANCHOR, `Root-anchored template must return an object`);
+    }
+    let cur = out;
+    for (let i = 0; i < segs.length; i++) {
+        const seg = segs[i];
+        const isLast = i === segs.length - 1;
+        if (isLast) {
+            const existing = cur[seg];
+            if (isJsonObject(existing) && isJsonObject(val)) {
+                cur[seg] = deepMergeObjects(existing, val);
+            }
+            else {
+                cur[seg] = val;
+            }
+        }
+        else {
+            const existing = cur[seg];
+            if (!isJsonObject(existing))
+                cur[seg] = {};
+            cur = cur[seg];
+        }
+    }
+}
+function pushIntoArrayAtAnchor(out, anchor, val, pushDepth) {
+    const E = error("PUSH_INTO_ARRAY");
+    const segs = (0, brands_2.unwrapFsRelPath)(anchor);
+    // Wrap val for nested-array contributions: depth=1 => val, depth=2 => [val], depth=3 => [[val]], ...
+    const wrapped = wrapForDepth(val, pushDepth);
+    // Root anchor array
+    if (segs.length === 0) {
+        if (!Array.isArray(out)) {
+            // out is an object by design; root-level [] contributors are nonsensical in this system
+            E(ERROR_CODES.ARRAY_TYPE_MISMATCH, `Root '[]' contributor is not supported`);
+        }
+        return;
+    }
+    let cur = out;
+    for (let i = 0; i < segs.length; i++) {
+        const seg = segs[i];
+        const isLast = i === segs.length - 1;
+        if (isLast) {
+            const existing = cur[seg];
+            if (existing === undefined) {
+                cur[seg] = [];
+            }
+            else if (!Array.isArray(existing)) {
+                E(ERROR_CODES.ARRAY_TYPE_MISMATCH, `Cannot push into non-array at '${segs.join("/")}'`);
+            }
+            cur[seg].push(wrapped);
+        }
+        else {
+            const existing = cur[seg];
+            if (!isJsonObject(existing))
+                cur[seg] = {};
+            cur = cur[seg];
+        }
+    }
+}
+function wrapForDepth(val, pushDepth) {
+    // pushDepth=1 => val
+    // pushDepth=2 => [val]
+    // pushDepth=3 => [[val]]
+    let out = val;
+    for (let i = 1; i < pushDepth; i++) {
+        out = [out];
     }
     return out;
 }

@@ -14,7 +14,6 @@ const DEFAULT_CONFIG = {
     groupDirPrefix: ".",
     LITERAL_EXT: ".json",
     TEMPLATE_EXT: ".js",
-    HIDDEN_DIR_PREFIX: "."
 };
 exports.DEFAULT_CONFIG = DEFAULT_CONFIG;
 /**
