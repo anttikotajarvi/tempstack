@@ -13,7 +13,7 @@ import type {
   TemplateContext,
   TemplateTools,
   ApplyThunk,
-} from "./types/new-index";
+} from "./types";
 
 import { ARRAY_SEG, asFsFilename, isArraySeg } from "./types/brands";
 

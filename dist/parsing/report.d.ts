@@ -1,4 +1,4 @@
-import { Config, TemplateFunction } from "../types";
+import { Config, TemplateFunction } from "../types/index";
 import { TemplateTreeRep } from "../types/report";
 /**
  * Heuristic: run the template with a proxy args object that records accessed keys.

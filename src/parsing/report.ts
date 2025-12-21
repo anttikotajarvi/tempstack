@@ -7,7 +7,7 @@ import {
   TemplateContext,
   TemplateFunction,
   TemplateTools
-} from "../types";
+} from "../types/index";
 import {
   TemplateTreeRep,
   TTDir,
@@ -86,13 +86,13 @@ export function getUsedArguments(tFn: TemplateFunction): string[] {
     }
   );
 
-  const dummyCtx: TemplateContext = {
+  const dummyCtx = {
     id: "audit-template",
     anchor: [],
     templateDir: "",
     path: [],
     filename: ""
-  };
+  } as any as TemplateContext;
 
   const dummyTools: TemplateTools = {
     apply: () => () => null as any

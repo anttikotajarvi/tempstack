@@ -1,4 +1,5 @@
-import { Config, JsonValue, Path } from ".";
+import { Config, JsonValue } from "./index"
+type Path = string[];
 
 type TTLoc = {
   /**

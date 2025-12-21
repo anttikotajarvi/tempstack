@@ -13,7 +13,7 @@ import type {
   TemplateTools,
   SlotContext,
   ApplyThunk
-} from "./types/new-index";
+} from "./types";
 
 import {
   ARRAY_SEG,

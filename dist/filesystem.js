@@ -33,64 +33,91 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.groupAgnosticFindWithFs = exports.tagNameFromFilename = exports.templateFilename = exports.literalFilename = exports.HIDDEN_FILE_PREFIX = void 0;
-const path = __importStar(require("path"));
+exports.groupAgnosticFind = exports.groupAgnosticFindWithFs = exports.isGroupDir = exports.tagNameFromFilename = exports.templateFilename = exports.literalFilename = exports.HIDDEN_FILE_PREFIX = void 0;
+const _fs = __importStar(require("node:fs"));
+const path = __importStar(require("node:path"));
+const brands_1 = require("./types/brands");
+/**
+ * Hidden file/dir prefix.
+ *
+ * IMPORTANT: We do NOT traverse these automatically.
+ * If you set cfg.groupDirPrefix=".", then dot-dirs are groups (and therefore traversed),
+ * but if you set cfg.groupDirPrefix to something else (e.g. "_"), dot-dirs are hidden
+ * and will not be traversed.
+ */
 exports.HIDDEN_FILE_PREFIX = ".";
-const literalFilename = (tagName) => `${tagName}.json`;
+/** Build literal filename from tag name. */
+const literalFilename = (tagName, cfg) => (0, brands_1.asFsFilename)(`${tagName}${cfg.LITERAL_EXT}`);
 exports.literalFilename = literalFilename;
-const templateFilename = (tagName) => `${tagName}.js`;
+/** Build function template filename from tag name. */
+const templateFilename = (tagName, cfg) => (0, brands_1.asFsFilename)(`${tagName}${cfg.TEMPLATE_EXT}`);
 exports.templateFilename = templateFilename;
-const tagNameFromFilename = (filename) => {
-    return path.parse(filename).name;
-};
+/** Extract template tag name from filename (drops extension). */
+const tagNameFromFilename = (filename) => (0, brands_1.asTemplateTagName)(path.parse(filename).name);
 exports.tagNameFromFilename = tagNameFromFilename;
-const _groupAgnosticFind = (fs) => (dirPath, tagName, cfg) => {
+/**
+ * True if entry is a “group dir” that should be traversed for implicit lookups.
+ *
+ * NOTE: We deliberately do NOT traverse hidden dirs here.
+ * Hidden dirs are only “implicitly group dirs” when cfg.groupDirPrefix === "."
+ * (because then they *are* group dirs).
+ */
+const isGroupDir = (name, cfg) => name.startsWith(cfg.groupDirPrefix);
+exports.isGroupDir = isGroupDir;
+/**
+ * Find all matching files for (dirPath, tagName), searching through group dirs implicitly.
+ *
+ * Returns filesystem-relative paths (segments) from the template root directory:
+ *   e.g. ["render",".a","look","default.json"]
+ */
+const _groupAgnosticFind = (fs) => (rootDir, dirPath, tagName, cfg) => {
     const visit = (currentPath, i) => {
         const hits = [];
-        const dirFsPath = path.join(cfg.templateDir, ...currentPath);
-        if (!fs.existsSync(dirFsPath)) {
+        const dirFsPath = path.join((0, brands_1.unwrapFsAbsPath)(rootDir), ...currentPath);
+        if (!fs.existsSync(dirFsPath))
             return hits;
-        }
         const entries = fs.readdirSync(dirFsPath, { withFileTypes: true });
-        if (i === dirPath.length) {
-            // We've matched all anchor segments for dirPath.
-            // 1) Collect files with matching tagName in this directory.
+        const anchorSegs = (0, brands_1.unwrapFsRelPath)(dirPath);
+        if (i === anchorSegs.length) {
+            // Anchor fully matched.
+            // 1) Prefer exact directory hits.
             for (const entry of entries) {
-                if (entry.isFile()) {
-                    if ((0, exports.tagNameFromFilename)(entry.name) === tagName) {
-                        hits.push([...currentPath, entry.name]);
-                    }
+                if (!entry.isFile())
+                    continue;
+                if ((0, exports.tagNameFromFilename)(entry.name) === tagName) {
+                    hits.push([...currentPath, entry.name]);
                 }
             }
-            // 2) Recurse into group dirs without advancing i (still same anchor level).
+            // If exact hits exist, do NOT infer group variants.
+            if (hits.length > 0) {
+                return hits;
+            }
+            // 2) Otherwise infer via group dirs at this anchor level.
             for (const entry of entries) {
-                if (entry.isDirectory() &&
-                    (entry.name.startsWith(cfg.groupDirPrefix) ||
-                        entry.name.startsWith(exports.HIDDEN_FILE_PREFIX))) {
+                if (entry.isDirectory() && (0, exports.isGroupDir)(entry.name, cfg)) {
                     hits.push(...visit([...currentPath, entry.name], i));
                 }
             }
             return hits;
         }
-        const segment = dirPath[i];
-        // We haven't matched all anchor segments yet.
+        const segment = anchorSegs[i];
+        // Not done matching anchor segments yet:
+        // - follow exact segment matches
+        // - also traverse into group dirs without consuming anchor segments
         for (const entry of entries) {
             if (!entry.isDirectory())
                 continue;
             if (entry.name === segment) {
-                // This directory matches the next anchor segment:
-                // consume one segment and recurse.
                 hits.push(...visit([...currentPath, entry.name], i + 1));
             }
-            else if (entry.name.startsWith(cfg.groupDirPrefix) ||
-                entry.name.startsWith(exports.HIDDEN_FILE_PREFIX)) {
-                // Group dir: we don't consume an anchor segment,
-                // just recurse with same i.
+            else if ((0, exports.isGroupDir)(entry.name, cfg)) {
                 hits.push(...visit([...currentPath, entry.name], i));
             }
         }
         return hits;
     };
-    return visit([], 0);
+    const rawHits = visit([], 0);
+    return rawHits.map((h) => (0, brands_1.asFsRelPath)(h));
 };
 exports.groupAgnosticFindWithFs = _groupAgnosticFind;
+exports.groupAgnosticFind = _groupAgnosticFind(_fs);
