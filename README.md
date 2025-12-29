@@ -1,3 +1,46 @@
+## Notes
+### `undefined` in function templates
+- a function module returning undefined will work and set the scoped object field to `undefined`
+- since undefined is not an actual JSON value the field will be removed from the rendered JSON
+- This would seem to go against the cumulative nature of the system but since this is emergent behavior there are no plans to correct this.
+```js
+module.exports = () => {
+    return undefined;
+}
+```
+*What this means?*
+```json
+{
+}
+```
+Is not the same as
+```js
+...
+return {
+  field: undefined
+}
+```
+Since the JSON is simply empty while the JS function template actually deletes the existing field.
+
+#### Example
+```json
+{
+  "version": "0.0.1"
+}
+```
+**+**
+```js
+  module.exports = () => {
+    return {
+      version: undefined
+    }
+}
+```
+**=**
+```json
+  {}
+```
+
 ## Arrays and `[]` (array element anchor)
 
 This system models template composition primarily through **object property paths**.

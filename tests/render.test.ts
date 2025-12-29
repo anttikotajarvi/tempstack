@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { render } from "../src";
 import { Config } from "../src/types";
 import { initConfig, resetConfig } from "../src/config";
+import { version } from "node:os";
 
 const cfg: Config = {
   templateDir: path.join(__dirname, "test-templates"),
@@ -181,7 +182,7 @@ describe("render() array semantics ([] anchors)", () => {
     expect(result).toEqual({
       "array-tests": {
         colors: ["red", "blue"],
-      }
+      },
     });
   });
 
@@ -194,7 +195,7 @@ describe("render() array semantics ([] anchors)", () => {
     expect(result).toEqual({
       "array-tests": {
         colors: ["base", "red"],
-      }
+      },
     });
   });
 
@@ -208,18 +209,17 @@ describe("render() array semantics ([] anchors)", () => {
     const result = render(["array-tests/colors/arrayApply"], {});
     expect(result).toEqual({
       "array-tests": {
-        colors: ["red", "blue", "dark-red"]
-      }
+        colors: ["red", "blue", "dark-red"],
+      },
     });
   });
-
 
   it("pushes returned arrays as single elements (no flatten): element returns array => nested array", () => {
     const result = render(["array-tests/colors/[]/palette"], {});
     expect(result).toEqual({
       "array-tests": {
         colors: [["p1", "p2"]],
-      }
+      },
     });
   });
 
@@ -232,7 +232,7 @@ describe("render() array semantics ([] anchors)", () => {
     expect(result).toEqual({
       "array-tests": {
         nested: [["a1"], ["b1"]],
-      }
+      },
     });
   });
 
@@ -245,11 +245,164 @@ describe("render() array semantics ([] anchors)", () => {
     expect(result).toEqual({
       "array-tests": {
         mix: ["m0", "m1"],
-      }
+      },
     });
   });
 
   it("invalid template id with root [] segment throws invalid-id style error (not just mismatch)", () => {
     expect(() => render(["array-tests/[]/red"], {})).toThrow(/invalid|\[\]/i);
+  });
+});
+
+// Override tests
+describe("__override arguments", () => {
+  beforeEach(() => {
+    // make sure we don't reuse an old cached config
+    resetConfig();
+    // set the global config for this test run
+    initConfig(cfg);
+  });
+
+  it("override replaces existing fields", () => {
+    const result = render(["config/.a/feature"], {
+      __override: {
+        config: {
+          from: "override value",
+        },
+      },
+    });
+    expect(result).toEqual({
+      config: {
+        from: "override value",
+      },
+    });
+  });
+
+  it("override adds new fields", () => {
+    const result = render(["version/old"], {
+      __override: {
+        newField: "override value"
+      },
+    });
+    expect(result).toEqual({
+      version: "0.0.1", // From version/old.json
+      newField: "override value"
+    });
+  });
+
+  it("override deepmerges partial values", () => {
+    const result = render(["config/.a/feature"], {
+      __override: {
+        config: {
+          newField: "override value",
+        },
+      },
+    });
+    expect(result).toEqual({
+      config: {
+        from: "override value",
+        newField: "override value", // Overrides are merged last thus this order
+      },
+    });
+  });
+
+  it("override replaces replaces arrays", () => {
+    const result = render(
+      [
+        "array-tests/colors/default", // Yields ["base"]
+      ],
+      {
+        __override: {
+          "array-tests": {
+            colors: ["pink", "purple"],
+          },
+        },
+      }
+    );
+    expect(result).toEqual({
+      "array-tests": {
+        colors: ["pink", "purple"],
+      },
+    });
+  });
+
+  it("override allows array-contributors", () => {
+    const result = render(["array-tests/colors/default"], {
+      __override: {
+        "array-tests": {
+          colors: "[]"
+        },
+      },
+    });
+    expect(result).toEqual({
+      "array-tests": {
+        colors: ["pink", "purple"],
+      },
+    });
+  });
+});
+
+describe("__patch arguments", () => {
+  beforeEach(() => {
+    resetConfig();
+    initConfig(cfg);
+  });
+
+  it("patch replaces an existing atomic field", () => {
+    const result = render(["config/.a/feature"], {
+      __patch: [["config/from", "patched"]],
+    });
+
+    expect(result).toEqual({
+      config: {
+        from: "patched",
+      },
+    });
+  });
+
+  it("patch throws if the target path does not exist", () => {
+    expect(() =>
+      render(["version/old"], {
+        __patch: [["config/flags/debug", false]],
+      })
+    ).toThrow();
+  });
+
+  it("patches apply in order: last write wins (when field continues to exist)", () => {
+    const result = render(["config/.a/feature"], {
+      __patch: [
+        ["config/from", "first"],
+        ["config/from", "second"],
+      ],
+    });
+
+    expect(result).toEqual({
+      config: {
+        from: "second",
+      },
+    });
+  });
+
+  it("patch can set a field to undefined, which removes it from the final JSON", () => {
+    const result = render(["version/old"], {
+      __patch: [["version", undefined]],
+    });
+
+    // version key removed
+    expect(JSON.parse(JSON.stringify(result))).toEqual({}); // Removed in JSON
+    expect("version" in result).toBe(true); // Still present in JS object (as undefined)
+  });
+
+  it("patching a field that exists as undefined is valid", () => {
+    expect(() =>
+      render(["version/old"], {
+        __patch: [
+          ["version", undefined],
+          ["version", "0.0.2"], 
+        ],
+      })
+    ).toEqual({
+      version: "0.0.2"
+    })
   });
 });
