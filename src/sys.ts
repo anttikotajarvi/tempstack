@@ -586,7 +586,11 @@ export function render(
       }
 
       // Allow patchValue === undefined (deletes in JSON stringify phase, consistent with your system)
-      setPathStrict(out, anchor, patchValue as any);
+      try {
+        setPathStrict(out, anchor, patchValue as any);
+      } catch (e) {
+        E(ERROR_CODES.INVALID_PATCH, e);
+      }
     }
   }
 
@@ -721,7 +725,9 @@ function hasPathStrict(root: JsonObject, anchor: TemplateAnchorPath): boolean {
 
   return true;
 }
-
+/**
+ * @throws string
+ */
 function setPathStrict(
   root: JsonObject,
   anchor: TemplateAnchorPath,
@@ -735,9 +741,7 @@ function setPathStrict(
     const isLast = i === segs.length - 1;
 
     if (!isJsonObject(cur)) {
-      throw new Error(
-        `non-object encountered at ${segs.slice(0, i).join("/")}`
-      );
+      throw `non-object encountered at ${segs.slice(0, i).join("/")}`;
     }
 
     if (isLast) {
