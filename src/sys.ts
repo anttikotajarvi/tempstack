@@ -487,6 +487,25 @@ export function render(
     }
   }
 
+
+  const OVERRIDE_TAG = "__override";
+  const PATCH_TAG = "__patch";
+
+  // Handle __override arguments
+  if (OVERRIDE_TAG in args) {
+    const overrideObj = args[OVERRIDE_TAG] as JsonObject;
+
+    // Handle non object root value
+    if (!isJsonObject(overrideObj)) {
+      // Throw error
+      E(
+        ERROR_CODES.INVALID_OVERRIDE,
+        `Override value must be an object`
+      );
+    }
+
+  
+  }
   return out;
 }
 
