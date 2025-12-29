@@ -15,7 +15,12 @@ import type {
   ApplyThunk,
 } from "./types";
 
-import { ARRAY_SEG, asFsFilename, isArraySeg } from "./types/brands";
+import {
+  ARRAY_SEG,
+  asFsFilename,
+  isArraySeg,
+  unwrapObjPath,
+} from "./types/brands";
 
 import {
   asTemplateId,
@@ -77,6 +82,7 @@ export enum ERROR_CODES {
   ARRAY_TYPE_MISMATCH = "array-type-mismatch",
   UNEXPECTED_READ_ERROR = "unexpected-read-error",
   INVALID_OVERRIDE = "invalid-override",
+  INVALID_PATCH = "invalid-patch",
 }
 
 const error =
@@ -504,6 +510,86 @@ export function render(
     Object.assign(out, merged);
   }
 
+  // Patch implementation
+  const PATCH_TAG = "__patch" as const;
+
+  if (PATCH_TAG in args) {
+    const raw = args[PATCH_TAG] as [string, JsonValue][];
+
+    if (!Array.isArray(raw)) {
+      E(
+        ERROR_CODES.INVALID_PATCH,
+        `__patch must be an array of [path, value] entries`
+      );
+    }
+
+    const patches = raw as Array<[unknown, unknown]>;
+
+    for (const entry of patches) {
+      if (!Array.isArray(entry) || entry.length !== 2) {
+        E(
+          ERROR_CODES.INVALID_PATCH,
+          `Each __patch entry must be [path, value]`
+        );
+      }
+
+      const [pathRaw, patchValue] = entry as [string, JsonValue];
+
+      if (typeof pathRaw !== "string") {
+        E(ERROR_CODES.INVALID_PATCH, `Patch path must be a string`);
+      }
+
+      const rel = parsePatchPath(pathRaw); // FsRelPath
+      const segs = unwrapFsRelPath(rel);
+
+      // detect push paths: trailing [] segments
+      let pushDepth = 0;
+      for (let i = segs.length - 1; i >= 0; i--) {
+        if (segs[i] === "[]") pushDepth++;
+        else break;
+      }
+
+      if (pushDepth > 0) {
+        // Array contributor patch: anchor is segs without trailing [] segments
+        const dir = asFsRelPath(segs); // pass full dir to your helpers
+        const mountAnchor = deriveMountAnchor(dir, cfg);
+        const contrib = deriveArrayContribution(dir, cfg);
+        // sanity: contrib should match what we calculated
+        // (optional, but nice for debugging)
+        // if (!contrib.isArrayContributor) ...
+
+        // STRICT: array must already exist at anchor
+        const existing = getAtAnchor(out, mountAnchor); // implement or reuse if you have it
+        if (!Array.isArray(existing)) {
+          E(
+            ERROR_CODES.ARRAY_TYPE_MISMATCH, // todo: new error code?
+            `Patch push target is not an existing array: ${pathRaw}`
+          );
+        }
+
+        pushIntoArrayAtAnchor(
+          out,
+          mountAnchor,
+          patchValue as any,
+          contrib.pushDepth
+        );
+        continue;
+      }
+
+      // Normal strict replace patch
+      const anchor = asTemplateAnchorPath(segs); // key path
+      if (!hasPathStrict(out, anchor)) {
+        E(
+          ERROR_CODES.TEMPLATE_NOT_FOUND,
+          `Patch path does not exist: ${pathRaw}`
+        ); // todo new error code.
+      }
+
+      // Allow patchValue === undefined (deletes in JSON stringify phase, consistent with your system)
+      setPathStrict(out, anchor, patchValue as any);
+    }
+  }
+
   return out;
 }
 
@@ -615,4 +701,64 @@ function parsePatchPath(p: string): FsRelPath {
   return asFsRelPath(segs);
 }
 
+function hasPathStrict(root: JsonObject, anchor: TemplateAnchorPath): boolean {
+  const segs = unwrapObjPath(anchor);
 
+  let cur: any = root;
+  for (let i = 0; i < segs.length; i++) {
+    const k = segs[i]!;
+    const isLast = i === segs.length - 1;
+
+    if (!isJsonObject(cur)) return false;
+
+    if (isLast) {
+      return k in cur; // allows existing-but-undefined
+    }
+
+    if (!(k in cur)) return false;
+    cur = cur[k];
+  }
+
+  return true;
+}
+
+function setPathStrict(
+  root: JsonObject,
+  anchor: TemplateAnchorPath,
+  value: any
+): void {
+  const segs = unwrapObjPath(anchor);
+
+  let cur: any = root;
+  for (let i = 0; i < segs.length; i++) {
+    const k = segs[i]!;
+    const isLast = i === segs.length - 1;
+
+    if (!isJsonObject(cur)) {
+      throw new Error(
+        `non-object encountered at ${segs.slice(0, i).join("/")}`
+      );
+    }
+
+    if (isLast) {
+      cur[k] = value;
+      return;
+    }
+
+    if (!(k in cur)) {
+      throw new Error(`missing path at ${segs.slice(0, i + 1).join("/")}`);
+    }
+
+    cur = cur[k];
+  }
+}
+
+function getAtAnchor(root: JsonObject, anchor: TemplateAnchorPath): unknown {
+  const segs = unwrapObjPath(anchor);
+  let cur: any = root;
+  for (const s of segs) {
+    if (!isJsonObject(cur)) return undefined;
+    cur = cur[s];
+  }
+  return cur;
+}

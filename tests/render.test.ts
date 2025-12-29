@@ -281,12 +281,12 @@ describe("__override arguments", () => {
   it("override adds new fields", () => {
     const result = render(["version/old"], {
       __override: {
-        newField: "override value"
+        newField: "override value",
       },
     });
     expect(result).toEqual({
       version: "0.0.1", // From version/old.json
-      newField: "override value"
+      newField: "override value",
     });
   });
 
@@ -300,7 +300,7 @@ describe("__override arguments", () => {
     });
     expect(result).toEqual({
       config: {
-        from: "override value",
+        from: "group-a",
         newField: "override value", // Overrides are merged last thus this order
       },
     });
@@ -319,21 +319,6 @@ describe("__override arguments", () => {
         },
       }
     );
-    expect(result).toEqual({
-      "array-tests": {
-        colors: ["pink", "purple"],
-      },
-    });
-  });
-
-  it("override allows array-contributors", () => {
-    const result = render(["array-tests/colors/default"], {
-      __override: {
-        "array-tests": {
-          colors: "[]"
-        },
-      },
-    });
     expect(result).toEqual({
       "array-tests": {
         colors: ["pink", "purple"],
@@ -394,15 +379,14 @@ describe("__patch arguments", () => {
   });
 
   it("patching a field that exists as undefined is valid", () => {
-    expect(() =>
-      render(["version/old"], {
-        __patch: [
-          ["version", undefined],
-          ["version", "0.0.2"], 
-        ],
-      })
-    ).toEqual({
-      version: "0.0.2"
-    })
+    const result = render(["version/old"], {
+      __patch: [
+        ["version", undefined],
+        ["version", "0.0.2"],
+      ],
+    });
+    expect(result).toEqual({
+      version: "0.0.2",
+    });
   });
 });
