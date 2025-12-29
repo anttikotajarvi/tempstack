@@ -76,6 +76,7 @@ export enum ERROR_CODES {
   INVALID_ANCHOR = "invalid-anchor",
   ARRAY_TYPE_MISMATCH = "array-type-mismatch",
   UNEXPECTED_READ_ERROR = "unexpected-read-error",
+  INVALID_OVERRIDE = "invalid-override",
 }
 
 const error =
@@ -487,25 +488,22 @@ export function render(
     }
   }
 
+  const OVERRIDE_TAG = "__override" as const;
 
-  const OVERRIDE_TAG = "__override";
-  const PATCH_TAG = "__patch";
-
-  // Handle __override arguments
   if (OVERRIDE_TAG in args) {
-    const overrideObj = args[OVERRIDE_TAG] as JsonObject;
+    const overrideRaw = args[OVERRIDE_TAG];
 
-    // Handle non object root value
-    if (!isJsonObject(overrideObj)) {
-      // Throw error
-      E(
-        ERROR_CODES.INVALID_OVERRIDE,
-        `Override value must be an object`
-      );
+    if (!isJsonObject(overrideRaw as any)) {
+      E(ERROR_CODES.INVALID_OVERRIDE, `__override must be an object`);
     }
 
-  
+    const overrideObj = overrideRaw as JsonObject;
+
+    // merge last: override wins
+    const merged = deepMergeObjects(out, overrideObj);
+    Object.assign(out, merged);
   }
+
   return out;
 }
 
@@ -608,3 +606,13 @@ function wrapForDepth(val: JsonValue, pushDepth: number): JsonValue {
   }
   return out;
 }
+/* Override and patch helpers */
+function parsePatchPath(p: string): FsRelPath {
+  const trimmed = p.trim();
+  if (!trimmed) throw new Error("empty patch path");
+
+  const segs = trimmed.split("/").filter(Boolean);
+  return asFsRelPath(segs);
+}
+
+
