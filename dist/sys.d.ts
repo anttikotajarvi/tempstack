@@ -11,7 +11,9 @@ export declare enum ERROR_CODES {
     TEMPLATE_EXECUTION_ERROR = "template-execution-error",
     INVALID_ANCHOR = "invalid-anchor",
     ARRAY_TYPE_MISMATCH = "array-type-mismatch",
-    UNEXPECTED_READ_ERROR = "unexpected-read-error"
+    UNEXPECTED_READ_ERROR = "unexpected-read-error",
+    INVALID_OVERRIDE = "invalid-override",
+    INVALID_PATCH = "invalid-patch"
 }
 export declare function retrieveTemplate(tPath: FsRelPath, rootDirAbs: TemplateDirAbs | FsAbsPath, cfg: Config): [template: TemplateFunction | TemplateLiteral, absolutePath: FsAbsPath];
 export declare const apply: (tagName: string, args?: Record<string, unknown>) => ApplyThunk;

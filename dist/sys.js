@@ -61,6 +61,8 @@ var ERROR_CODES;
     ERROR_CODES["INVALID_ANCHOR"] = "invalid-anchor";
     ERROR_CODES["ARRAY_TYPE_MISMATCH"] = "array-type-mismatch";
     ERROR_CODES["UNEXPECTED_READ_ERROR"] = "unexpected-read-error";
+    ERROR_CODES["INVALID_OVERRIDE"] = "invalid-override";
+    ERROR_CODES["INVALID_PATCH"] = "invalid-patch";
 })(ERROR_CODES || (exports.ERROR_CODES = ERROR_CODES = {}));
 const error = (processName) => (code, msg, err) => {
     throw new Error(`${code} from ${processName}: ${msg}`);
@@ -318,6 +320,74 @@ function render(templateIds, args) {
             }
         }
     }
+    const OVERRIDE_TAG = "__override";
+    if (OVERRIDE_TAG in args) {
+        const overrideRaw = args[OVERRIDE_TAG];
+        if (!isJsonObject(overrideRaw)) {
+            E(ERROR_CODES.INVALID_OVERRIDE, `__override must be an object`);
+        }
+        const overrideObj = overrideRaw;
+        // merge last: override wins
+        const merged = deepMergeObjects(out, overrideObj);
+        Object.assign(out, merged);
+    }
+    // Patch implementation
+    const PATCH_TAG = "__patch";
+    if (PATCH_TAG in args) {
+        const raw = args[PATCH_TAG];
+        if (!Array.isArray(raw)) {
+            E(ERROR_CODES.INVALID_PATCH, `__patch must be an array of [path, value] entries`);
+        }
+        const patches = raw;
+        for (const entry of patches) {
+            if (!Array.isArray(entry) || entry.length !== 2) {
+                E(ERROR_CODES.INVALID_PATCH, `Each __patch entry must be [path, value]`);
+            }
+            const [pathRaw, patchValue] = entry;
+            if (typeof pathRaw !== "string") {
+                E(ERROR_CODES.INVALID_PATCH, `Patch path must be a string`);
+            }
+            const rel = parsePatchPath(pathRaw); // FsRelPath
+            const segs = (0, brands_2.unwrapFsRelPath)(rel);
+            // detect push paths: trailing [] segments
+            let pushDepth = 0;
+            for (let i = segs.length - 1; i >= 0; i--) {
+                if (segs[i] === "[]")
+                    pushDepth++;
+                else
+                    break;
+            }
+            if (pushDepth > 0) {
+                // Array contributor patch: anchor is segs without trailing [] segments
+                const dir = (0, brands_2.asFsRelPath)(segs); // pass full dir to your helpers
+                const mountAnchor = (0, convert_1.deriveMountAnchor)(dir, cfg);
+                const contrib = (0, convert_1.deriveArrayContribution)(dir, cfg);
+                // sanity: contrib should match what we calculated
+                // (optional, but nice for debugging)
+                // if (!contrib.isArrayContributor) ...
+                // STRICT: array must already exist at anchor
+                const existing = getAtAnchor(out, mountAnchor); // implement or reuse if you have it
+                if (!Array.isArray(existing)) {
+                    E(ERROR_CODES.ARRAY_TYPE_MISMATCH, // todo: new error code?
+                    `Patch push target is not an existing array: ${pathRaw}`);
+                }
+                pushIntoArrayAtAnchor(out, mountAnchor, patchValue, contrib.pushDepth);
+                continue;
+            }
+            // Normal strict replace patch
+            const anchor = (0, brands_2.asTemplateAnchorPath)(segs); // key path
+            if (!hasPathStrict(out, anchor)) {
+                E(ERROR_CODES.TEMPLATE_NOT_FOUND, `Patch path does not exist: ${pathRaw}`); // todo new error code.
+            }
+            // Allow patchValue === undefined (deletes in JSON stringify phase, consistent with your system)
+            try {
+                setPathStrict(out, anchor, patchValue);
+            }
+            catch (e) {
+                E(ERROR_CODES.INVALID_PATCH, e);
+            }
+        }
+    }
     return out;
 }
 function mergeAtAnchor(out, anchor, val) {
@@ -395,4 +465,61 @@ function wrapForDepth(val, pushDepth) {
         out = [out];
     }
     return out;
+}
+/* Override and patch helpers */
+function parsePatchPath(p) {
+    const trimmed = p.trim();
+    if (!trimmed)
+        throw new Error("empty patch path");
+    const segs = trimmed.split("/").filter(Boolean);
+    return (0, brands_2.asFsRelPath)(segs);
+}
+function hasPathStrict(root, anchor) {
+    const segs = (0, brands_1.unwrapObjPath)(anchor);
+    let cur = root;
+    for (let i = 0; i < segs.length; i++) {
+        const k = segs[i];
+        const isLast = i === segs.length - 1;
+        if (!isJsonObject(cur))
+            return false;
+        if (isLast) {
+            return k in cur; // allows existing-but-undefined
+        }
+        if (!(k in cur))
+            return false;
+        cur = cur[k];
+    }
+    return true;
+}
+/**
+ * @throws string
+ */
+function setPathStrict(root, anchor, value) {
+    const segs = (0, brands_1.unwrapObjPath)(anchor);
+    let cur = root;
+    for (let i = 0; i < segs.length; i++) {
+        const k = segs[i];
+        const isLast = i === segs.length - 1;
+        if (!isJsonObject(cur)) {
+            throw `non-object encountered at ${segs.slice(0, i).join("/")}`;
+        }
+        if (isLast) {
+            cur[k] = value;
+            return;
+        }
+        if (!(k in cur)) {
+            throw new Error(`missing path at ${segs.slice(0, i + 1).join("/")}`);
+        }
+        cur = cur[k];
+    }
+}
+function getAtAnchor(root, anchor) {
+    const segs = (0, brands_1.unwrapObjPath)(anchor);
+    let cur = root;
+    for (const s of segs) {
+        if (!isJsonObject(cur))
+            return undefined;
+        cur = cur[s];
+    }
+    return cur;
 }
