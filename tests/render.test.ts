@@ -390,3 +390,18 @@ describe("__patch arguments", () => {
     });
   });
 });
+
+// Extended group tests
+describe("groups extended", () => {
+  beforeEach(() => {
+    resetConfig();
+    initConfig(cfg);
+  });
+
+  it("groups can apply outer templates", () => {
+    const result = render(["group-tests/.test-group/parallelApplyOutOfGroup"], {});
+    expect(result).toEqual({
+      "group-tests": "basic value" // From group-tests/basic.json
+    });
+  });
+});
