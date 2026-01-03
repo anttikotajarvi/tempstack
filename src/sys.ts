@@ -305,12 +305,16 @@ export const apply =
     const [impl, implAbs] = retrieveTemplate(tPath, callerDirAbs, cfg);
 
     if (isTemplateLiteral(impl)) {
-      if (Object.keys(args).length > 0) {
-        return E(
-          ERROR_CODES.INVALID_TEMPLATE_ARGS,
-          `Literal template but apply() received args: ${tagName}`
-        );
-      }
+      /**
+       * Disallowing passing arguments to literals might seem good but 
+       *  actually ends up being really annoying.
+       */
+      //if (Object.keys(args).length > 0) {
+      //  return E(
+      //    ERROR_CODES.INVALID_TEMPLATE_ARGS,
+      //    `Literal template but apply() received args: ${tagName}`
+      //  );
+      //}
       return impl as TemplateLiteral;
     }
 
